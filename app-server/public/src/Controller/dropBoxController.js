@@ -1,19 +1,62 @@
 class DropBoxController {
     constructor(){
+
         this.btnSend = document.querySelector("#btn-send-file");
         this.InputFilesEl = document.querySelector("#files");
         this.snackModalEl = document.querySelector("#react-snackbar-root");
         this.progressBarEl = document.querySelector(".mc-progress-bar-fg");
         this.fileNameEl = document.querySelector(".filename")
         this.timeLeftEl = document.querySelector(".timeleft")
-        
+        this.listFilesEl = document.querySelector("#list-of-files-and-directories")
+       
+        //criaçao de um evento chamado "selectionC"
+        this.onselectionchange = new Event('selectionchange')
+
+        this.newPasteBtn =  document.querySelector("#btn-new-folder")
+        this.renameBtn =  document.querySelector("#btn-rename")
+        this.excludeBtn = document.querySelector("#btn-delete")
 
         this.connectFirebase();
         this.initEvents();
+        this.readFiles();
     }
 
+    getSelection(){
+
+        return this.listFilesEl.querySelectorAll(".selected")
+    }
 
     initEvents(){
+       
+        //menu dinamico showing or not the rename exclude btn
+        this.listFilesEl.addEventListener("selectionchange", e=>{
+            switch(this.getSelection().length){
+
+                case 0:
+
+                this.excludeBtn.style.display = "none";
+                this.renameBtn.style.display = "none";
+
+                break;
+
+                case 1:
+                    this.excludeBtn.style.display = "block";
+                    this.renameBtn.style.display = "block";
+                break;
+
+                default:
+                    this.excludeBtn.style.display = "block";
+                    this.renameBtn.style.display = "none";
+
+                break;
+                
+                
+
+
+            }
+        })
+
+
         this.btnSend.addEventListener("click", e => {
             
             this.InputFilesEl.click();
@@ -22,25 +65,40 @@ class DropBoxController {
 
         this.InputFilesEl.addEventListener("change", event => {
 
+            this.btnSend.disabled = true
+
             console.log(event.target.files)
 
             this.uploadTask(event.target.files).then(responses =>{
                 responses.forEach(resp =>{
 
                     console.log(resp.files['input-file'])
+                    this.getFirebaseRef().push().set(resp.files['input-file'])
 
 
                 })
-                this.ModalShow(false)
+             
+            this.uploadComplete()
+            }).catch(err => {
+                console.log(err)
             })
 
             this.ModalShow()
 
-            this.InputFilesEl.value = "";
-
         })
 
     }
+
+    //acionado quando termina o updload de um arquivo 
+    uploadComplete(){
+
+        this.ModalShow(false)
+
+        this.InputFilesEl.value = "";
+
+        this.btnSend.disabled = false;
+    }
+
     //conexão com o banco de dados
     connectFirebase(){
         
@@ -58,6 +116,13 @@ class DropBoxController {
           // Initialize Firebase
           const app = firebase.initializeApp(firebaseConfig);
           
+    }
+
+    //acessa o firebase e da uma ref para onde as informações dos files serão armazenadas
+    getFirebaseRef(){
+
+        return firebase.database().ref("files")
+
     }
 
     // function para abertura e fechamento da barra de carregamento durante o upload dos files
@@ -169,7 +234,7 @@ class DropBoxController {
 
     // tratamento dos icons para retornar determinado ICON de acordo com o tipo de arquivo enviado criando sua categoria e o armazenando nela.
     getFileIconView(file){
-        switch(file.type){
+        switch(file.mimetype){
 
 
             case "folder":
@@ -332,14 +397,108 @@ class DropBoxController {
         }
     }
     // recebe o ICON tratato e retorna seu HTML pronto para uso.
-    getFileView(file){
+    getFileView(file, key){
 
-        return `         
-        <li>
+        let li = document.createElement('li')
+        li.dataset.key = key;
+
+        li.innerHTML =`         
+        
         ${this.getFileIconView(file)}
-        <div class="name text-center">${file.name}</div>
-    </li>`
+        <div class="name text-center">${file.originalFilename}</div>
+    `
+        
+    this.initEventsLi(li)
+
+        return li
+    }
+
+    //fica escutando as mudanças feitas no firebase, trazendo os valores atuais presentes no database = ASSINCRONIDADE 
+    //DTBASE - CLIENT  
+    readFiles(){
+
+        this.getFirebaseRef().on("value",currentValues  =>{
+            
+            this.listFilesEl.innerHTML = ""
+
+            currentValues.forEach(cvalue =>{
+                
+
+                let key = cvalue.key
+                let data = cvalue.val()
+
+                
+
+                this.listFilesEl.appendChild(this.getFileView(data, key))
+                
+                })
+            })
     }
 
 
+    // adicionando classes aos li dos arquivos.
+    initEventsLi(li){
+
+        li.addEventListener('click', e =>{
+            
+            //fica ouvindo caso haja mudança nas seleções dos arquivos
+           
+
+         
+            if(e.shiftKey){
+
+                let firstLi = this.listFilesEl.querySelector(".selected");
+
+                if(firstLi) {
+
+                    
+                    let indexStart;
+                    let indexEnd;
+                    let ulfilhos = li.parentElement.childNodes
+                    
+                   ulfilhos.forEach((el, index) =>{
+
+                        if(firstLi === el) indexStart = index;
+                        
+                        if(li === el) indexEnd = index;
+                        
+                    })
+
+
+                    let indexArray = [indexStart, indexEnd].sort()
+
+                    ulfilhos.forEach((el, indexLi) =>{
+                       
+                        if(indexArray[1] >= indexLi && indexLi >= indexArray[0] ) {
+                         
+                            el.classList.add("selected")
+                        }
+
+                    })
+
+                    this.listFilesEl.dispatchEvent(this.onselectionchange)
+
+                    return true;
+                }
+    
+            }
+            
+
+            if(!e.ctrlKey) {
+                this.listFilesEl.querySelectorAll("li.selected").forEach(el => {
+                    
+                    el.classList.remove('selected');
+                    
+                })
+                
+            }
+            
+            li.classList.toggle('selected')
+
+            this.listFilesEl.dispatchEvent(this.onselectionchange)
+
+            
+        } )
+
+    }
 }
