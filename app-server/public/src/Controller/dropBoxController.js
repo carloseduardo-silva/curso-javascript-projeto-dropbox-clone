@@ -1,6 +1,9 @@
 class DropBoxController {
     constructor(){
 
+        this.currentFolder = ["dropbox"]
+
+        this.navEl = document.querySelector("#browse-location")
         this.btnSend = document.querySelector("#btn-send-file");
         this.InputFilesEl = document.querySelector("#files");
         this.snackModalEl = document.querySelector("#react-snackbar-root");
@@ -18,7 +21,7 @@ class DropBoxController {
 
         this.connectFirebase();
         this.initEvents();
-        this.readFiles();
+        this.openFolder()
     }
 
     getSelection(){
@@ -26,9 +29,96 @@ class DropBoxController {
         return this.listFilesEl.querySelectorAll(".selected")
     }
 
+    removeTask(){
+
+        let promisses = [];
+
+        this.getSelection().forEach(li =>{
+
+            let key = li.dataset.key;
+            let file = JSON.parse(li.dataset.fileObj)
+            let formData = new FormData();
+
+            formData.append("name", file.originalFilename)
+            formData.append("path", file.filepath)
+            formData.append("key", key)
+            
+
+
+            promisses.push(this.ajax("/file", "DELETE", formData))
+
+        })
+        return Promise.all(promisses)
+        
+
+
+    }
+
+
     initEvents(){
+        console.log(this.currentFolder)
+
+        this.newPasteBtn.addEventListener("click", e=>{
+
+            let name = prompt("Nome da nova pasta:")
+            if(name){
+
+                this.getFirebaseRef().push().set({
+                    name,
+                    type:"folder",
+                    path:this.currentFolder.join("/")
+
+                })
+
+            }
+        })
+
+        this.excludeBtn.addEventListener('click', e=>{
+
+            this.removeTask().then(responses =>{
+
+
+               responses.forEach(resp =>{
+
+                if(resp.fields.key){
+
+                    this.getFirebaseRef().child(resp.fields.key).remove()
+
+                }
+
+               })
+
+            }).catch(err =>{
+
+
+                console.log(err)
+            })
+
+
+
+        })
        
-        //menu dinamico showing or not the rename exclude btn
+        this.renameBtn.addEventListener('click', e=>{
+
+            let li = this.getSelection()[0]
+
+            console.log(li.dataset.fileObj)
+
+            let file = JSON.parse(li.dataset.fileObj)
+
+            let newName = prompt("Renomear arquivo", file.originalFilename)
+
+            if(newName){
+                file.originalFilename = newName
+
+                //renomeia no database
+                this.getFirebaseRef().child(li.dataset.key).set(file)
+
+            }
+
+        })
+
+        //menu dinamico showing or not the rename/exclude btn
         this.listFilesEl.addEventListener("selectionchange", e=>{
             switch(this.getSelection().length){
 
@@ -66,8 +156,6 @@ class DropBoxController {
         this.InputFilesEl.addEventListener("change", event => {
 
             this.btnSend.disabled = true
-
-            console.log(event.target.files)
 
             this.uploadTask(event.target.files).then(responses =>{
                 responses.forEach(resp =>{
@@ -119,9 +207,11 @@ class DropBoxController {
     }
 
     //acessa o firebase e da uma ref para onde as informações dos files serão armazenadas
-    getFirebaseRef(){
+    getFirebaseRef(path){
 
-        return firebase.database().ref("files")
+        if(!path) path = this.currentFolder.join('/')
+
+        return firebase.database().ref(path)
 
     }
 
@@ -130,6 +220,39 @@ class DropBoxController {
 
          this.snackModalEl.style.display = (show) ?"block" : "none";
 
+    }
+
+    ajax(url, method = 'GET', formData = new FormData, onprogress = function(){}, onloadstart = function(){}){
+
+        return new Promise((resolve,reject) => {
+            let ajax = new XMLHttpRequest();
+
+            ajax.open(method, url)
+
+            ajax.onload = event =>{
+
+                try{
+                    resolve(JSON.parse(ajax.responseText))
+
+                } catch(e){
+                    reject(e)
+                }
+            }
+
+            ajax.onerror = event =>{
+                
+                reject(event)
+            }
+
+            ajax.upload.onprogress = onprogress;
+
+            onloadstart();
+
+            ajax.send(formData)
+            }
+
+        )
+        
     }
 
 // função que recebe os files e promove o upload destes atraves do AJAX (assincronidade)
@@ -142,41 +265,13 @@ class DropBoxController {
 
         fileArray.forEach(file => {
 
-            promisses.push(new Promise((resolve, reject) =>{
+            let formData = new FormData();
 
-                let ajax = new XMLHttpRequest();
+            formData.append("input-file", file)
 
-                ajax.open("POST", "/upload")
-
-                ajax.onload = event =>{
-
-                    try{
-                        resolve(JSON.parse(ajax.responseText))
-
-                    } catch(e){
-                        reject(e)
-                    }
-                }
-
-                ajax.onerror = event =>{
-                    
-                    reject(event)
-                }
-
-                ajax.upload.onprogress = event => {
-
-                    this.startUploadTime = Date.now()
-                    this.uploadProgress(event, file)
-
-                }
-
-                let formData = new FormData();
-
-                formData.append("input-file", file)
-
-                ajax.send(formData)
-
-            }))
+            promisses.push(
+                this.ajax("/upload", "POST", formData, onprogress = ()=>{this.uploadProgress(event,file)}, onloadstart = ()=>{ this.startUploadTime = Date.now()})
+            )
             
         });
 
@@ -234,9 +329,8 @@ class DropBoxController {
 
     // tratamento dos icons para retornar determinado ICON de acordo com o tipo de arquivo enviado criando sua categoria e o armazenando nela.
     getFileIconView(file){
-        switch(file.mimetype){
 
-
+        switch(file.type){
             case "folder":
                 return `      <svg width="160" height="160" viewBox="0 0 160 160" class="mc-icon-template-content tile__preview tile__preview--icon">
                 <title>content-folder-large</title>
@@ -246,9 +340,18 @@ class DropBoxController {
                     <path d="M77.955 52h50.04A3.002 3.002 0 0 1 131 55.007v58.988a4.008 4.008 0 0 1-4.003 4.005H39.003A4.002 4.002 0 0 1 35 113.995V44.99c0-2.206 1.79-3.99 3.997-3.99h26.002c1.666 0 3.667 1.166 4.49 2.605l3.341 5.848s1.281 2.544 5.12 2.544l.005.003z"
                         fill="#92CEFF"></path>
                 </g>
-                </svg>`;
-                break;
+                </svg>`
+            break;
 
+        
+        }
+
+
+
+        switch(file.mimetype){
+
+            case undefined:
+                return 
 
             case"image/jpg":
             case"image/jpeg":
@@ -398,24 +501,66 @@ class DropBoxController {
     }
     // recebe o ICON tratato e retorna seu HTML pronto para uso.
     getFileView(file, key){
-
         let li = document.createElement('li')
-        li.dataset.key = key;
+        let li1 = document.createElement('li')
+        console.log(file)
 
-        li.innerHTML =`         
-        
-        ${this.getFileIconView(file)}
-        <div class="name text-center">${file.originalFilename}</div>
-    `
-        
-    this.initEventsLi(li)
+        //tratamento para nao exibir/criar arquivos undefineds no site.
+        if(this.getFileIconView(file) == undefined){
+            console.log('working')
+            li.dataset.key = key;
+            li.dataset.fileObj = JSON.stringify(file)
+    
+            this.initEventsLi(li)
+    
+            return li
+        }
 
-        return li
+        else{
+
+            if(file.type){
+              
+                li1.dataset.key = key;
+                li1.dataset.fileObj = JSON.stringify(file)
+    
+                li1.innerHTML =`         
+            
+                ${this.getFileIconView(file)}
+                <div class="name text-center">${file.name}</div>
+                     `
+                this.initEventsLi(li1)
+    
+                return li1
+            }
+            else{
+    
+                li.dataset.key = key;
+                li.dataset.fileObj = JSON.stringify(file)
+        
+                li.innerHTML =`         
+                
+                ${this.getFileIconView(file)}
+                <div class="name text-center">${file.originalFilename}</div>
+            `
+                
+                this.initEventsLi(li)
+        
+                return li
+    
+            }
+
+        }
+
+
+
+      
     }
 
     //fica escutando as mudanças feitas no firebase, trazendo os valores atuais presentes no database = ASSINCRONIDADE 
     //DTBASE - CLIENT  
     readFiles(){
+
+        this.lastFolder = this.currentFolder.join('/')
 
         this.getFirebaseRef().on("value",currentValues  =>{
             
@@ -426,18 +571,70 @@ class DropBoxController {
 
                 let key = cvalue.key
                 let data = cvalue.val()
+                
 
+                if(data.type){
+
+                    this.listFilesEl.appendChild(this.getFileView(data, key))
+
+                }})})
+
+        this.getFirebaseRef().on("value",currentValues  =>{
+            
+            this.listFilesEl.innerHTML = ""
+
+            currentValues.forEach(cvalue =>{
+                
+
+                let key = cvalue.key
+                let data = cvalue.val()
                 
 
                 this.listFilesEl.appendChild(this.getFileView(data, key))
-                
-                })
-            })
+
+                })})        
+    }   
+
+    renderNav(){
+
+
+    }
+
+    openFolder(){
+        
+        //para de escutar pasta anterior p/ ouvir a seguinte pasta que foi aberta.
+        if(this.lastFolder) this.getFirebaseRef(this.lastFolder).off('value')
+
+
+
+        this.renderNav();
+        this.readFiles()
+
+
+
     }
 
 
     // adicionando classes aos li dos arquivos.
     initEventsLi(li){
+
+        li.addEventListener("dblclick", e=>{
+
+            let file = JSON.parse(li.dataset.fileObj)
+            
+            switch(file.type){
+
+                case "folder":
+                    this.currentFolder.push(file.name)
+                    this.openFolder();
+                break;
+
+                default:
+                    window.open('/file?path='+ file.path);
+
+            }
+
+        })
 
         li.addEventListener('click', e =>{
             
