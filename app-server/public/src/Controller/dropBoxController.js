@@ -56,7 +56,7 @@ class DropBoxController {
 
 
     initEvents(){
-        console.log(this.currentFolder)
+        
 
         this.newPasteBtn.addEventListener("click", e=>{
 
@@ -158,15 +158,11 @@ class DropBoxController {
             this.btnSend.disabled = true
 
             this.uploadTask(event.target.files).then(responses =>{
-                responses.forEach(resp =>{
-
-                    console.log(resp.files['input-file'])
-                    this.getFirebaseRef().push().set(resp.files['input-file'])
-
-
-                })
+            
+                console.log('responses:', Object.assign({}, responses) )
              
-            this.uploadComplete()
+                this.uploadComplete()
+
             }).catch(err => {
                 console.log(err)
             })
@@ -265,17 +261,51 @@ class DropBoxController {
 
         fileArray.forEach(file => {
 
-            let formData = new FormData();
-
-            formData.append("input-file", file)
-
-            promisses.push(
-                this.ajax("/upload", "POST", formData, onprogress = ()=>{this.uploadProgress(event,file)}, onloadstart = ()=>{ this.startUploadTime = Date.now()})
-            )
             
-        });
+            promisses.push(new Promise((resolve, reject)=>{
+                let fileRef = firebase.storage().ref(this.currentFolder.join('/')).child(file.name)
+    
+                let task = fileRef.put(file)
+    
+                
+                task.on('state_changed', snapshot =>{
+                    
+                    this.uploadProgress({
+                        loaded:snapshot.bytesTransferred,
+                        total:snapshot.totalBytes
+                    }, file)
+    
+                    console.log('progress', snapshot)
+    
+                }, error =>{
+    
+                    console.log(error)
+                    reject(error)
+                   
+    
+                }, () =>{
+    
+                    fileRef.getMetadata().then(metadata =>{
+    
+                        resolve(metadata)
+    
+                    }).catch(err=>{
+    
+                        console.log(err)
+                        reject(err)
+    
+                    })
+    
+                  
+                });
+    
+              
+            })
 
+            )})
+        console.log(promisses)
         return Promise.all(promisses)
+
         
         
     }
@@ -503,11 +533,11 @@ class DropBoxController {
     getFileView(file, key){
         let li = document.createElement('li')
         let li1 = document.createElement('li')
-        console.log(file)
+       
 
         //tratamento para nao exibir/criar arquivos undefineds no site.
         if(this.getFileIconView(file) == undefined){
-            console.log('working')
+           
             li.dataset.key = key;
             li.dataset.fileObj = JSON.stringify(file)
     
@@ -595,9 +625,76 @@ class DropBoxController {
                 })})        
     }   
 
+    // menu de rotas para abertura de pastas = NAVEGAÇÃO DE PASTAS.
     renderNav(){
 
+        let nav = document.createElement('nav')
+        let path = []
 
+        for(let i = 0; i < this.currentFolder.length; i++){
+
+            let folderName = this.currentFolder[i]
+            let span = document.createElement('span');
+            path.push(folderName)
+
+            if((i+1) === this.currentFolder.length){
+
+                span.innerHTML = folderName
+
+            }
+            else{
+                span.className = 'breadcrumb-segment__wrapper'
+                span.innerHTML = `  <span class="ue-effect-container uee-BreadCrumbSegment-link-0">
+                <a href="#" data-path="${path.join('/')}" class="breadcrumb-segment">${folderName}</a>
+            </span>
+            <svg width="24" height="24" viewBox="0 0 24 24" class="mc-icon-template-stateless" style="top: 4px; position: relative;">
+                <title>arrow-right</title>
+                <path d="M10.414 7.05l4.95 4.95-4.95 4.95L9 15.534 12.536 12 9 8.464z" fill="#637282"
+                    fill-rule="evenodd"></path>
+            </svg`
+                
+            
+        }
+        
+        nav.appendChild(span)
+
+        }
+        this.navEl.innerHTML = nav.innerHTML
+
+        this.navEl.querySelectorAll('a').forEach(a=>{
+
+            a.addEventListener('click', e=>{
+
+                e.preventDefault()
+
+                this.currentFolder = a.dataset.path.split('/');
+
+                this.openFolder()
+
+
+            })
+
+
+        })
+
+
+        /*
+            <span class="breadcrumb-segment__wrapper">
+
+                                            <span class="ue-effect-container uee-BreadCrumbSegment-link-0">
+                                                <a href="https://www.dropbox.com/work" class="breadcrumb-segment">HCODE</a>
+                                            </span>
+
+                                            
+
+
+                                            <svg width="24" height="24" viewBox="0 0 24 24" class="mc-icon-template-stateless" style="top: 4px; position: relative;">
+                                                <title>arrow-right</title>
+                                                <path d="M10.414 7.05l4.95 4.95-4.95 4.95L9 15.534 12.536 12 9 8.464z" fill="#637282"
+                                                    fill-rule="evenodd"></path>
+                                            </svg>
+                                            
+                                        </span> */
     }
 
     openFolder(){
@@ -630,7 +727,8 @@ class DropBoxController {
                 break;
 
                 default:
-                    window.open('/file?path='+ file.path);
+                    console.log(file)
+                    window.open('/file?path=upload/'+ file.newFilename);
 
             }
 
