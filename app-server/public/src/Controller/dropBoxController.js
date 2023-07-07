@@ -300,7 +300,7 @@ class DropBoxController {
 
     }
 
-    ajax(url, method = 'GET', formData = new FormData, onprogress = function(){}, onloadstart = function(){}){
+   /* ajax(url, method = 'GET', formData = new FormData, onprogress = function(){}, onloadstart = function(){}){
 
         return new Promise((resolve,reject) => {
             let ajax = new XMLHttpRequest();
@@ -331,7 +331,7 @@ class DropBoxController {
 
         )
         
-    }
+    }*/
 
 // função que recebe os files e promove o upload destes atraves do AJAX (assincronidade)
     uploadTask(files){

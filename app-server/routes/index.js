@@ -1,7 +1,7 @@
 var express = require('express');
 var router = express.Router();
-var formidable = require('formidable')
-var fs = require("fs")
+var formidable = require('formidable') // tratamento de arquivos/pastas
+var fs = require("fs")//navegação no discolocal/localpath
 
 /* GET home page. */
 router.get('/', function(req, res, next) {
